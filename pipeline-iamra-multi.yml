@@ -1,0 +1,114 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy of this
+# software and associated documentation files (the "Software"), to deal in the Software
+# without restriction, including without limitation the rights to use, copy, modify,
+# merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+# PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+# HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+trigger:
+- main
+
+pool:
+  vmImage: ubuntu-latest
+
+stages:
+- stage: DeployDev
+  variables:
+  - group: aws-dev
+  jobs:
+    - job: DeployDev
+      steps:
+      - bash: wget https://rolesanywhere.amazonaws.com/releases/1.0.3/X86_64/Linux/aws_signing_helper; chmod +x aws_signing_helper;
+        displayName: Install AWS Signer
+
+      - task: DownloadSecureFile@1
+        name: Certificate
+        displayName: 'Download certificate'
+        inputs:
+          secureFile: 'certificate.crt'
+
+      - task: DownloadSecureFile@1
+        name: Privatekey
+        displayName: 'Download private key'
+        inputs:
+          secureFile: 'private.key'
+
+      - bash: |
+          aws configure set credential_process "./aws_signing_helper credential-process --certificate $(Certificate.secureFilePath) --private-key $(Privatekey.secureFilePath) --trust-anchor-arn $(TRUSTANCHORARN) --profile-arn $(PROFILEARN) --role-arn $(ROLEARN)" --profile default
+          echo "##vso[task.setvariable variable=AWS_SDK_LOAD_CONFIG;]1"  
+        displayName: Obtain AWS Credentials
+
+      - task: AWSCLI@1
+        displayName: Check AWS identity
+        inputs:
+          regionName: 'ca-central-1'
+          awsCommand: 'sts'
+          awsSubCommand: 'get-caller-identity'
+
+      - task: CloudFormationCreateOrUpdateStack@1
+        displayName: 'Create/Update Stack: Staging-Deployment'
+        inputs:
+          regionName:     'ca-central-1'
+          stackName:      'my-stack-name'
+          useChangeSet:   true
+          changeSetName:  'my-stack-name-changeset'
+          templateFile:   'DynamoDB_Table.template'
+          templateParametersFile: 'parameters.json'
+          captureStackOutputs: asVariables
+          captureAsSecuredVars: false
+
+- stage: DeployProd
+  dependsOn:
+  - DeployDev
+  variables:
+  - group: aws-prod
+  jobs:
+    - job: DeployDev
+      steps:
+      - bash: wget https://rolesanywhere.amazonaws.com/releases/1.0.3/X86_64/Linux/aws_signing_helper; chmod +x aws_signing_helper;
+        displayName: Install AWS Signer
+
+      - task: DownloadSecureFile@1
+        name: Certificate
+        displayName: 'Download certificate'
+        inputs:
+          secureFile: 'certificate.crt'
+
+      - task: DownloadSecureFile@1
+        name: Privatekey
+        displayName: 'Download private key'
+        inputs:
+          secureFile: 'private.key'
+
+      - bash: |
+          aws configure set credential_process "./aws_signing_helper credential-process --certificate $(Certificate.secureFilePath) --private-key $(Privatekey.secureFilePath) --trust-anchor-arn $(TRUSTANCHORARN) --profile-arn $(PROFILEARN) --role-arn $(ROLEARN)" --profile default
+          echo "##vso[task.setvariable variable=AWS_SDK_LOAD_CONFIG;]1"  
+        displayName: Obtain AWS Credentials
+
+      - task: AWSCLI@1
+        displayName: Check AWS identity
+        inputs:
+          regionName: 'ca-central-1'
+          awsCommand: 'sts'
+          awsSubCommand: 'get-caller-identity'
+
+      - task: CloudFormationCreateOrUpdateStack@1
+        displayName: 'Create/Update Stack: Staging-Deployment'
+        inputs:
+          regionName:     'ca-central-1'
+          stackName:      'my-stack-name'
+          useChangeSet:   true
+          changeSetName:  'my-stack-name-changeset'
+          templateFile:   'DynamoDB_Table.template'
+          templateParametersFile: 'parameters.json'
+          captureStackOutputs: asVariables
+          captureAsSecuredVars: false
